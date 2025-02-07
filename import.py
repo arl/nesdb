@@ -74,6 +74,14 @@ CREATE TABLE vram (
     FOREIGN KEY(board_id) REFERENCES board(id)
 );
 
+-- Table: wram
+CREATE TABLE wram (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    board_id  INTEGER NOT NULL,
+    size      TEXT,
+    FOREIGN KEY(board_id) REFERENCES board(id)
+);
+
 -- Table: chip
 CREATE TABLE chip (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -125,7 +133,7 @@ def insert_game(conn, game_el):
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (name, altname, _class, subclass, catalog, publisher, developer, region, players, date))
     conn.commit()
-    print("inserted:", name)
+    print(name)
     return cursor.lastrowid
 
 def insert_cartridge(conn, game_id, cart_el):
@@ -199,6 +207,17 @@ def insert_vram(conn, board_id, vram_el):
     """, (board_id, size))
     conn.commit()
 
+def insert_wram(conn, board_id, wram_el):
+    """Insert <wram> info into 'wram' table."""
+    size = wram_el.get("size")
+
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO wram(board_id, size)
+        VALUES (?, ?)
+    """, (board_id, size))
+    conn.commit()
+
 def insert_chip(conn, board_id, chip_el):
     """Insert <chip> info into 'chip' table."""
     ctype = chip_el.get("type")
@@ -255,6 +274,10 @@ def process_game(conn, game_el):
             # Insert <vram> if present
             for vram_el in board_el.findall("vram"):
                 insert_vram(conn, board_id, vram_el)
+
+            # Insert <wram> if present
+            for wram_el in board_el.findall("wram"):
+                insert_wram(conn, board_id, wram_el)
 
             # Insert <chip> if present
             for chip_el in board_el.findall("chip"):
