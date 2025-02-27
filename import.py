@@ -34,6 +34,24 @@ CREATE TABLE cartridge (
     FOREIGN KEY(game_id) REFERENCES game(id)
 );
 
+-- Table: device
+CREATE TABLE device (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id   INTEGER NOT NULL,
+    type      TEXT,
+    name      TEXT,
+    FOREIGN KEY(game_id) REFERENCES game(id)
+);
+
+-- Table: chip_pin
+CREATE TABLE chip_pin (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    chip_id   INTEGER NOT NULL,
+    number    TEXT,
+    function  TEXT,
+    FOREIGN KEY(chip_id) REFERENCES chip(id)
+);
+
 -- Table: board
 CREATE TABLE board (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -228,6 +246,31 @@ def insert_chip(conn, board_id, chip_el):
         VALUES (?, ?)
     """, (board_id, ctype))
     conn.commit()
+    return cursor.lastrowid
+
+def insert_device(conn, game_id, device_el):
+    """Insert <device> info into 'device' table."""
+    dtype = device_el.get("type")
+    dname = device_el.get("name")
+
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO device(game_id, type, name)
+        VALUES (?, ?, ?)
+    """, (game_id, dtype, dname))
+    conn.commit()
+
+def insert_chip_pin(conn, chip_id, pin_el):
+    """Insert <pin> info into 'chip_pin' table."""
+    number = pin_el.get("number")
+    function = pin_el.get("function")
+
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO chip_pin(chip_id, number, function)
+        VALUES (?, ?, ?)
+    """, (chip_id, number, function))
+    conn.commit()
 
 def insert_cic(conn, board_id, cic_el):
     """Insert <cic> info into 'cic' table."""
@@ -252,9 +295,19 @@ def insert_pad(conn, board_id, pad_el):
     """, (board_id, h, v))
     conn.commit()
 
+def process_peripherals(conn, game_id, game_el):
+    """Handle <peripherals> -> <device> elements."""
+    peripherals_el = game_el.find("peripherals")
+    if peripherals_el is not None:
+        for device_el in peripherals_el.findall("device"):
+            insert_device(conn, game_id, device_el)
+
 def process_game(conn, game_el):
     """Handle one <game> node: insert the game, then process its cartridges, boards, etc."""
     game_id = insert_game(conn, game_el)
+
+    # Process <peripherals> after or before cartridges, as you prefer
+    process_peripherals(conn, game_id, game_el)
 
     for cartridge_el in game_el.findall("cartridge"):
         cart_id = insert_cartridge(conn, game_id, cartridge_el)
@@ -281,7 +334,10 @@ def process_game(conn, game_el):
 
             # Insert <chip> if present
             for chip_el in board_el.findall("chip"):
-                insert_chip(conn, board_id, chip_el)
+                chip_id = insert_chip(conn, board_id, chip_el)
+                # Insert <pin> inside <chip>
+                for pin_el in chip_el.findall("pin"):
+                    insert_chip_pin(conn, chip_id, pin_el)
 
             # Insert <cic> if present
             for cic_el in board_el.findall("cic"):
