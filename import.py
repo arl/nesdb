@@ -96,6 +96,7 @@ CREATE TABLE vram (
 CREATE TABLE wram (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     board_id  INTEGER NOT NULL,
+    battery   BOOL,
     size      TEXT,
     FOREIGN KEY(board_id) REFERENCES board(id)
 );
@@ -228,12 +229,13 @@ def insert_vram(conn, board_id, vram_el):
 def insert_wram(conn, board_id, wram_el):
     """Insert <wram> info into 'wram' table."""
     size = wram_el.get("size")
+    battery = wram_el.get("battery")
 
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO wram(board_id, size)
-        VALUES (?, ?)
-    """, (board_id, size))
+        INSERT INTO wram(board_id, size, battery)
+        VALUES (?, ?, ?)
+    """, (board_id, size, battery))
     conn.commit()
 
 def insert_chip(conn, board_id, chip_el):
