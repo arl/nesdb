@@ -60,10 +60,6 @@ Options:
 
 func main() {
 	flag.Parse()
-	if flag.NFlag() == 0 {
-		flag.Usage()
-		os.Exit(1)
-	}
 
 	// Open database
 	db, err := sql.Open("sqlite3", "nes.db")
