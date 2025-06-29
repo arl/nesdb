@@ -17,20 +17,28 @@ import (
 
 var (
 	mapper   int
+	region   string
 	battery  BoolFlag
 	showChip bool
 	verbose  bool
+	order    multiFlag
 )
+
+const allRegions = "All"
 
 func init() {
 	flag.IntVar(&mapper, "m", -1, "Filter by iNES mapper number")
 	flag.IntVar(&mapper, "mapper", -1, "Filter by iNES mapper number")
+	flag.StringVar(&region, "r", allRegions, "Filter by iNES region")
+	flag.StringVar(&region, "region", allRegions, "Filter by iNES region")
 	flag.Var(&battery, "b", "Filter by presence of battery-packed RAM")
 	flag.Var(&battery, "battery", "Filter by presence of battery-packed RAM")
 	flag.BoolVar(&showChip, "c", false, "Show chip column")
 	flag.BoolVar(&showChip, "showchip", false, "Show chip column")
 	flag.BoolVar(&verbose, "v", false, "Verbose execution (print SQL query)")
 	flag.BoolVar(&verbose, "verbose", false, "Verbose execution (print SQL query)")
+	flag.Var(&order, "o", "Order results by column (defaults to name, can be repeated)")
+	flag.Var(&order, "order", "Order results by column (defaults to name, can be repeated)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage:
   %s [options]
@@ -38,10 +46,13 @@ func init() {
 Filters:
   -m, --mapper   Filter by iNES mapper number
   -b, --battery  Filter by presence of battery-packed RAM
+  -r, --region   Filter by iNES region
 
 Options:
   -v, --verbose  Verbose execution (print SQL query)
   -c, --showchip Show chip column
+  -o, --order    Order results by column (default to name, can be repeated)
+
 
 `, os.Args[0])
 	}
@@ -95,9 +106,9 @@ func main() {
 	if showChip {
 		cols = append(cols, C("chip.type").As("chip_type"))
 	}
-	d = d.Select(cols...).Order(C("g.name").Asc())
+	d = d.Select(cols...)
 
-	// Build WHERE clauses
+	// Build filters
 	var filters []Expression
 	if mapper >= 0 {
 		filters = append(filters, C("b.mapper").Eq(mapper))
@@ -110,8 +121,22 @@ func main() {
 			filters = append(filters, L("wram.battery").IsNull())
 		}
 	}
+
+	region = cleanRegion(region)
+	if region != allRegions {
+		filters = append(filters, C("g.region").Eq(region))
+	}
+
 	if len(filters) > 0 {
 		d = d.Where(filters...)
+	}
+
+	if len(order) > 0 {
+		for _, o := range order {
+			d = d.OrderAppend(C(o).Asc())
+		}
+	} else {
+		d = d.Order(C("g.name").Asc())
 	}
 
 	query, args, err := d.ToSQL()
@@ -144,6 +169,14 @@ func run(query string) error {
 	return nil
 }
 
+func cleanRegion(region string) string {
+	region = strings.Title(strings.ToLower(region))
+	if region == "Usa" {
+		return "USA"
+	}
+	return region
+}
+
 type BoolFlag struct {
 	val bool
 	set bool
@@ -166,5 +199,17 @@ func (f *BoolFlag) Set(value string) error {
 	return nil
 }
 
+// IsSet reports whether the flag has been set.
 func (f *BoolFlag) IsSet() bool { return f.set }
+
+// Value reports the flag value if it has been set, else always false.
 func (f *BoolFlag) Value() bool { return f.val }
+
+type multiFlag []string
+
+func (f *multiFlag) String() string { return fmt.Sprint(*f) }
+
+func (f *multiFlag) Set(value string) error {
+	*f = append(*f, value)
+	return nil
+}

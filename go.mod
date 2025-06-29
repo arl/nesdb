@@ -1,4 +1,4 @@
-module nesdb/search
+module nesdb/searchnes
 
 go 1.24.2
 
