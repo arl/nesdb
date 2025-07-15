@@ -1,7 +1,7 @@
 package main
 
 import (
-	"database/sql"
+	_ "embed"
 	"flag"
 	"fmt"
 	"log"
@@ -12,21 +12,24 @@ import (
 
 	. "github.com/doug-martin/goqu/v9"
 	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/kanmu/go-sqlfmt/sqlfmt"
 )
+
+//go:embed nes.db
+var nesDB []byte
 
 var (
 	mapper   int
 	region   string
 	battery  BoolFlag
 	showChip bool
-	verbose  bool
+	dryrun   bool
 	order    multiFlag
 )
 
 const allRegions = "All"
 
-func init() {
+func cli() {
 	flag.IntVar(&mapper, "m", -1, "Filter by iNES mapper number")
 	flag.IntVar(&mapper, "mapper", -1, "Filter by iNES mapper number")
 	flag.StringVar(&region, "r", allRegions, "Filter by iNES region")
@@ -35,10 +38,11 @@ func init() {
 	flag.Var(&battery, "battery", "Filter by presence of battery-packed RAM")
 	flag.BoolVar(&showChip, "c", false, "Show chip column")
 	flag.BoolVar(&showChip, "showchip", false, "Show chip column")
-	flag.BoolVar(&verbose, "v", false, "Verbose execution (print SQL query)")
-	flag.BoolVar(&verbose, "verbose", false, "Verbose execution (print SQL query)")
+	flag.BoolVar(&dryrun, "q", false, "Show SQL query (but do not execute it)")
+	flag.BoolVar(&dryrun, "query", false, "Show SQL query (but do not execute it)")
 	flag.Var(&order, "o", "Order results by column (defaults to name, can be repeated)")
 	flag.Var(&order, "order", "Order results by column (defaults to name, can be repeated)")
+
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage:
   %s [options]
@@ -49,7 +53,7 @@ Filters:
   -r, --region   Filter by iNES region
 
 Options:
-  -v, --verbose  Verbose execution (print SQL query)
+  -q, --query    Show SQL Query (but do not execute it)
   -c, --showchip Show chip column
   -o, --order    Order results by column (default to name, can be repeated)
 
@@ -59,14 +63,8 @@ Options:
 }
 
 func main() {
+	cli()
 	flag.Parse()
-
-	// Open database
-	db, err := sql.Open("sqlite3", "nes.db")
-	if err != nil {
-		log.Fatalf("opening DB: %v", err)
-	}
-	defer db.Close()
 
 	// Initialize goqu
 	dialect := Dialect("sqlite3")
@@ -136,27 +134,46 @@ func main() {
 	}
 
 	query, args, err := d.ToSQL()
+	_ = args
 	if err != nil {
 		log.Fatalf("building SQL: %v", err)
 	}
-	if verbose {
-		fmt.Println("SQL:", query, args)
+
+	query1 := strings.ReplaceAll(query, "`", "")
+	query2, err := sqlfmt.Format(query1, &sqlfmt.Options{Distance: 8})
+	if err != nil {
+		query2 = query1
 	}
-
-	query = strings.ReplaceAll(query, "`", "")
-
-	if err := run(query); err != nil {
-		log.Fatal(err)
+	if dryrun {
+		fmt.Println("SQL:", query2)
+	} else {
+		if err := run(query2); err != nil {
+			log.Fatal(err)
+		}
 	}
 }
 
 func run(query string) error {
+	f, err := os.CreateTemp("", "")
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	defer os.Remove(f.Name())
+
+	if _, err := f.Write(nesDB); err != nil {
+		return err
+	}
+
 	bin, err := exec.LookPath("sqlite3")
 	if err != nil {
 		return fmt.Errorf("sqlite3 not found in PATH: %v", err)
 	}
 
-	out, err := exec.Command(bin, "nes.db", ".mode table", query).CombinedOutput()
+	out, err := exec.Command(bin,
+		f.Name(),
+		"--readonly",
+		".mode table", query).CombinedOutput()
 	if err != nil {
 		fmt.Printf("Output: %s\n", out)
 		return fmt.Errorf("sqlite3 failed: %v", err)
